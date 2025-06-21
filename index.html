@@ -4,19 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Morse Code Encoder</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
     <style>
         html, body {
             font-family: 'Inter', sans-serif;
         }
-        /* Custom CSS for character highlighting (can be removed if not needed elsewhere, but kept for general utility if you change your mind) */
+        /* Custom CSS for character highlighting */
         .char-segment {
             display: inline-block; /* Allows individual spacing and transformation */
             white-space: pre; /* Preserves whitespace within the span */
-            transition: font-size 0.2s ease-in-out, font-weight 0.2s ease-in-out, color 0.2s ease-in-out; /* Smooth transitions */
+            transition: font-size 0.2s ease-in-out, font-weight 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-in-out; /* Smooth transitions */
             font-size: 1em; /* Default size */
             color: rgba(255, 255, 255, 0.7); /* Slightly faded default color */
+            margin: 0 2px; /* Small margin between characters for better spacing */
+            min-width: 0.5em; /* Ensure small characters like 'i' still take some space */
+            text-align: center;
         }
         .highlight-char {
             font-weight: bold;
@@ -33,9 +38,10 @@
         </h1>
 
         <p class="text-center text-gray-300 mb-8">
-            Type your message, set the pitch and speed, then listen to it in Morse code!
+            Type your message, set the speed, then listen to it in Morse code!
         </p>
 
+        <!-- Text Input Area -->
         <div class="mb-6">
             <label for="text-input" class="block text-gray-300 text-sm font-bold mb-2">
                 Your Message:
@@ -48,6 +54,7 @@
             ></textarea>
         </div>
 
+        <!-- Playback Display Area -->
         <div class="mb-6">
             <label class="block text-gray-300 text-sm font-bold mb-2">
                 Playing:
@@ -56,23 +63,12 @@
                 id="playback-text-display"
                 class="w-full p-4 rounded-lg bg-gray-700 border border-gray-600 text-white min-h-[4rem] flex flex-wrap items-center justify-center text-xl overflow-hidden"
             >
-                </div>
+                <!-- Current word and highlighted letter will be displayed here -->
+            </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div>
-                <label for="pitch-input" class="block text-gray-300 text-sm font-bold mb-2">
-                    Pitch (Hz):
-                </label>
-                <input
-                    id="pitch-input"
-                    type="number"
-                    class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value="600"
-                    min="100"
-                    max="2000"
-                />
-            </div>
+        <!-- WPM Control (Pitch control removed) -->
+        <div class="grid grid-cols-1 md:grid-cols-1 gap-6 mb-8">
             <div>
                 <label for="wpm-input" class="block text-gray-300 text-sm font-bold mb-2">
                     Speed (WPM):
@@ -88,12 +84,20 @@
             </div>
         </div>
 
+        <!-- Action Buttons -->
         <div class="flex flex-col sm:flex-row gap-4">
             <button
                 id="play-button"
                 class="flex-1 px-6 py-3 rounded-lg font-bold text-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 bg-blue-600 hover:bg-blue-700 text-white shadow-lg transform hover:scale-105"
             >
                 Encode & Play
+            </button>
+            <button
+                id="pause-button"
+                class="flex-1 px-6 py-3 rounded-lg font-bold text-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400 bg-gray-600 text-gray-400 cursor-not-allowed"
+                disabled
+            >
+                Pause
             </button>
             <button
                 id="stop-button"
@@ -104,6 +108,7 @@
             </button>
         </div>
 
+        <!-- Message display -->
         <div id="message-display" class="mt-6 p-3 bg-gray-700 text-center text-gray-200 rounded-lg shadow-inner hidden">
         </div>
     </div>
@@ -122,12 +127,13 @@
 
         // --- DOM Elements ---
         const textInput = document.getElementById('text-input');
-        const pitchInput = document.getElementById('pitch-input');
+        // const pitchInput = document.getElementById('pitch-input'); // Removed
         const wpmInput = document.getElementById('wpm-input');
         const playButton = document.getElementById('play-button');
+        const pauseButton = document.getElementById('pause-button'); // New pause button
         const stopButton = document.getElementById('stop-button');
         const messageDisplay = document.getElementById('message-display');
-        const playbackTextDisplay = document.getElementById('playback-text-display'); // New display area
+        const playbackTextDisplay = document.getElementById('playback-text-display');
 
         // --- Global Web Audio API Variables ---
         let audioContext;
@@ -135,8 +141,12 @@
         let gainNode;
         let isPlaying = false;
         let stopPlaybackFlag = false; // Flag to signal stopping playback mid-sequence
-        // currentHighlightedSpan is no longer needed for word display, but kept if you plan to highlight within a word later
-        let currentHighlightedSpan = null; 
+        let isPaused = false; // New flag for pause state
+        let resolvePausePromise = null; // Function to resolve the pause promise
+        let pausePromise = null; // Promise that will be awaited when paused
+        let currentHighlightedCharSpan = null; // To keep track of the currently highlighted character span within a word
+
+        const DEFAULT_PITCH = 600; // Hardcoded default pitch
 
         // Morse code dictionary (case-insensitive for convenience)
         const morseCodeMap = {
@@ -148,7 +158,7 @@
             '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
             '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
             '.': '.-.-.-', ',': '--..--', '?': '..--..', '\'': '.----.', '!': '-.-.--',
-            '/': '-..-.', '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...',
+            '/': '-..-.', '(': '-.--.', ')': '-.-.-', '&': '.-...', ':': '---...',
             ';': '-.-.-.', '=': '-...-', '+': '.-.-.', '-': '-....-', '_': '..--.-',
             '"': '.-..-.', '$': '...-..-', '@': '.--.-.', ' ': ' ' // Space represents word break
         };
@@ -182,24 +192,34 @@
                 playButton.classList.add('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
                 playButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
 
+                pauseButton.disabled = false;
+                pauseButton.classList.add('bg-yellow-600', 'hover:bg-yellow-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+                pauseButton.classList.remove('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+                pauseButton.textContent = 'Pause'; // Ensure text is 'Pause' when starting playback
+
                 stopButton.disabled = false;
                 stopButton.classList.add('bg-red-600', 'hover:bg-red-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
                 stopButton.classList.remove('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
 
                 textInput.disabled = true;
-                pitchInput.disabled = true;
+                // pitchInput.disabled = true; // Removed
                 wpmInput.disabled = true;
             } else {
                 playButton.disabled = false;
                 playButton.classList.remove('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
                 playButton.classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
 
+                pauseButton.disabled = true;
+                pauseButton.classList.remove('bg-yellow-600', 'hover:bg-yellow-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+                pauseButton.classList.add('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+                pauseButton.textContent = 'Pause'; // Reset text on stop
+
                 stopButton.disabled = true;
                 stopButton.classList.remove('bg-red-600', 'hover:bg-red-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
                 stopButton.classList.add('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
 
                 textInput.disabled = false;
-                pitchInput.disabled = false;
+                // pitchInput.disabled = false; // Removed
                 wpmInput.disabled = false;
             }
         }
@@ -239,9 +259,11 @@
 
         // --- Playback Helper for Web Audio API ---
         async function playMorseElement(duration) {
-            if (stopPlaybackFlag) return;
+            // Check both stop and pause flags
+            if (stopPlaybackFlag || isPaused) return;
 
-            const pitch = parseFloat(pitchInput.value);
+            // const pitch = parseFloat(pitchInput.value); // Removed
+            const pitch = DEFAULT_PITCH; // Using hardcoded pitch
             const rampTime = 0.005; // Very short ramp time to prevent clicks
 
             // Set frequency for the current element
@@ -255,12 +277,58 @@
             // Wait for the duration of the dot/dash
             await new Promise(resolve => setTimeout(resolve, duration * 1000));
 
-            if (stopPlaybackFlag) return;
+            // Check again after timeout in case pause/stop was triggered during the wait
+            if (stopPlaybackFlag || isPaused) return;
 
             // Ramp down gain to zero (silence)
             gainNode.gain.linearRampToValueAtTime(0.0001, audioContext.currentTime + rampTime); // Ramp down quickly
             gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime + rampTime + 0.01); // Ensure it's off
         }
+
+        // --- Pause/Resume Functions ---
+        const pausePlayback = () => {
+            if (!isPlaying) return; // Only pause if something is actually playing
+
+            isPaused = true;
+            if (audioContext && audioContext.state === 'running') {
+                audioContext.suspend().then(() => {
+                    console.log("AudioContext suspended.");
+                });
+            }
+            pauseButton.textContent = 'Resume';
+            // Create a new promise that will keep the async loop waiting
+            pausePromise = new Promise(resolve => {
+                resolvePausePromise = resolve;
+            });
+            showMessage('Playback paused.');
+        };
+
+        const resumePlayback = () => {
+            if (!isPlaying) return; // Only resume if something is actually playing
+
+            isPaused = false;
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    console.log("AudioContext resumed.");
+                });
+            }
+            pauseButton.textContent = 'Pause';
+            // Resolve the promise, allowing the async loop to continue
+            if (resolvePausePromise) {
+                resolvePausePromise();
+                resolvePausePromise = null; // Clear the resolver
+                pausePromise = null; // Clear the promise
+            }
+            showMessage('Resuming playback...');
+        };
+
+        const togglePauseResume = () => {
+            if (isPaused) {
+                resumePlayback();
+            } else {
+                pausePlayback();
+            }
+        };
 
         // --- Main Playback Logic ---
         const encodeAndPlay = async () => {
@@ -277,6 +345,8 @@
 
             updateButtonStates(true);
             stopPlaybackFlag = false; // Reset stop flag for new playback
+            isPaused = false; // Ensure not paused at start
+            pauseButton.textContent = 'Pause'; // Ensure pause button text is correct
             showMessage('Encoding and playing...');
 
             initAudioContext(); // Ensure audio context is initialized and started
@@ -284,53 +354,165 @@
             const timings = getMorseTimings(parseFloat(wpmInput.value));
             const extraCharacterPauseMs = 100; // 100ms extra pause between characters
             
-            // Split the text into words (and include spaces as separate elements to handle word spacing)
-            // This regex splits by spaces but keeps the spaces in the array
+            // Split the text into words, retaining spaces as separate elements.
             const words = text.split(/(\s+)/).filter(s => s.length > 0); 
             
+            // Loop through each word or space segment
             for (let i = 0; i < words.length; i++) {
-                if (stopPlaybackFlag) {
-                    break;
+                // Check for stop and pause at the beginning of each word/segment processing
+                if (stopPlaybackFlag) break;
+                if (isPaused && pausePromise) {
+                    await pausePromise; // Wait here until resumePlayback is called
+                    if (stopPlaybackFlag) break; // Check stop flag again after resuming
                 }
 
                 const currentWord = words[i];
 
-                if (currentWord.trim() === '') { // If it's a space/whitespace segment
-                    playbackTextDisplay.textContent = ''; // Clear display for a moment or keep previous word shown
+                if (currentWord.trim() === '') { // If the current segment is just whitespace (a word break)
+                    playbackTextDisplay.innerHTML = ''; // Clear display for a moment during word break
+                    // Ensure previous character highlight is removed if exists
+                    if (currentHighlightedCharSpan) {
+                        currentHighlightedCharSpan.classList.remove('highlight-char');
+                        currentHighlightedCharSpan = null;
+                    }
                     await new Promise(resolve => setTimeout(resolve, timings.wordSpace * 1000));
-                    continue; // Skip to the next word/segment
+                    continue; // Move to the next word/segment
                 }
 
-                // Display the current word
-                playbackTextDisplay.textContent = currentWord;
+                // Prepare the display area with spans for each character of the current word
+                playbackTextDisplay.innerHTML = ''; // Clear previous word's characters
+                const charSpans = [];
+                Array.from(currentWord).forEach((char, index) => {
+                    const span = document.createElement('span');
+                    // Use non-breaking space for visual spacing if the character itself is a space (e.g., from double spaces)
+                    span.textContent = char === ' ' ? '\u00A0' : char; 
+                    span.classList.add('char-segment');
+                    playbackTextDisplay.appendChild(span);
+                    charSpans.push(span);
+                });
 
                 // Iterate over characters of the current word
                 for (let k = 0; k < currentWord.length; k++) {
+                    // Check for stop and pause at the beginning of each character processing
                     if (stopPlaybackFlag) break;
+                    if (isPaused && pausePromise) {
+                        await pausePromise; // Wait here until resumePlayback is called
+                        if (stopPlaybackFlag) break; // Check stop flag again after resuming
+                    }
 
                     const char = currentWord[k].toLowerCase();
                     const morsePattern = morseCodeMap[char];
 
+                    // Remove highlight from previous character in the word
+                    if (currentHighlightedCharSpan) {
+                        currentHighlightedCharSpan.classList.remove('highlight-char');
+                    }
+
+                    // Highlight current character
+                    const currentCharSpan = charSpans[k];
+                    if (currentCharSpan) {
+                        currentCharSpan.classList.add('highlight-char');
+                        currentHighlightedCharSpan = currentCharSpan;
+                    }
+
                     if (morsePattern === undefined) {
-                        // Character not in map. Treat as a short pause.
-                        await new Promise(resolve => setTimeout(resolve, (timings.charSpace * 1000) + extraCharacterPauseMs));
+                        // Character not in map (e.g., unknown symbol). Treat as a short pause.
+                        // Only add a pause if it's not the last character of the word
+                        if (k < currentWord.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, (timings.charSpace * 1000) + extraCharacterPauseMs));
+                        }
                         continue;
                     }
 
                     // Play the morse elements for the character
                     for (let j = 0; j < morsePattern.length; j++) {
+                        // Check for stop and pause at the beginning of each element processing
                         if (stopPlaybackFlag) break;
+                        if (isPaused && pausePromise) {
+                            await pausePromise; // Wait here until resumePlayback is called
+                            if (stopPlaybackFlag) break; // Check stop flag again after resuming
+                        }
 
-                        const element = morsePattern[j];
+                        const element = morsePattern[j]; // Dot or dash
                         const noteDuration = element === '.' ? timings.dot : timings.dash;
 
                         await playMorseElement(noteDuration);
 
+                        // Add inter-element space after each dot/dash within a character,
+                        // unless it's the very last element of the current character.
                         if (j < morsePattern.length - 1) {
                             await new Promise(resolve => setTimeout(resolve, timings.elementSpace * 1000));
                         }
                     }
-
-                    // Add inter-character space if it's not the last char of the word
+                    
+                    // Add inter-character space after each Morse character,
+                    // unless it's the last character in the current word.
                     if (k < currentWord.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve,
+                        await new Promise(resolve => setTimeout(resolve, (timings.charSpace * 1000) + extraCharacterPauseMs));
+                    }
+                }
+            }
+
+            // After the loop finishes (either naturally or by stopPlaybackFlag)
+            // Ensure the last highlighted character is unhighlighted.
+            if (currentHighlightedCharSpan) {
+                currentHighlightedCharSpan.classList.remove('highlight-char');
+                currentHighlightedCharSpan = null; // Reset
+            }
+            playbackTextDisplay.innerHTML = ''; // Clear the display after all words are played
+            
+            // Ensure gain is fully off at the very end
+            if (gainNode) {
+                gainNode.gain.cancelScheduledValues(audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0, audioContext.currentTime + 0.05); // Give a small buffer time
+            }
+
+            updateButtonStates(false);
+            isPaused = false; // Reset pause state
+            pauseButton.textContent = 'Pause'; // Reset pause button text
+            if (!stopPlaybackFlag) { // Only show "Playback complete" if not stopped manually
+                showMessage('Playback complete.');
+            }
+            console.log('Playback complete/aborted.');
+        };
+
+        const stopPlayback = () => {
+            stopPlaybackFlag = true; // Set flag to signal stopping
+            isPaused = false; // Ensure pause state is reset
+            if (audioContext && audioContext.state !== 'closed') {
+                // Ensure audio context is resumed if paused, then stop sound
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                if (gainNode) {
+                    gainNode.gain.cancelScheduledValues(audioContext.currentTime); // Clear all pending ramps
+                    gainNode.gain.setValueAtTime(0, audioContext.currentTime); // Immediately set gain to 0
+                }
+            }
+            // If there's an active pause promise, resolve it to unblock the loop
+            if (resolvePausePromise) {
+                resolvePausePromise();
+                resolvePausePromise = null;
+                pausePromise = null;
+            }
+            // Remove highlight from any currently highlighted character
+            if (currentHighlightedCharSpan) {
+                currentHighlightedCharSpan.classList.remove('highlight-char');
+                currentHighlightedCharSpan = null;
+            }
+            playbackTextDisplay.innerHTML = ''; // Clear the display on stop
+            updateButtonStates(false);
+            showMessage('Playback stopped.');
+            console.log('Playback manually stopped.');
+        };
+
+        // --- Event Listeners ---
+        playButton.addEventListener('click', encodeAndPlay);
+        pauseButton.addEventListener('click', togglePauseResume); // New event listener for pause button
+        stopButton.addEventListener('click', stopPlayback);
+
+        // Initial setup for buttons (disabled stop/pause, enabled play)
+        updateButtonStates(false);
+    </script>
+</body>
+</html>
