@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Morse Code Encoder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+        html, body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom CSS for character highlighting (can be removed if not needed elsewhere, but kept for general utility if you change your mind) */
+        .char-segment {
+            display: inline-block; /* Allows individual spacing and transformation */
+            white-space: pre; /* Preserves whitespace within the span */
+            transition: font-size 0.2s ease-in-out, font-weight 0.2s ease-in-out, color 0.2s ease-in-out; /* Smooth transitions */
+            font-size: 1em; /* Default size */
+            color: rgba(255, 255, 255, 0.7); /* Slightly faded default color */
+        }
+        .highlight-char {
+            font-weight: bold;
+            font-size: 2em; /* Twice as large */
+            color: #4ade80; /* A vibrant green for highlighting */
+            transform: scale(1.1); /* Slightly increase size for a subtle pop */
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-800 to-purple-900 text-white flex flex-col items-center justify-center p-4">
+    <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 hover:scale-105">
+        <h1 class="text-4xl font-extrabold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-blue-500">
+            Morse Code Converter
+        </h1>
+
+        <p class="text-center text-gray-300 mb-8">
+            Type your message, set the pitch and speed, then listen to it in Morse code!
+        </p>
+
+        <div class="mb-6">
+            <label for="text-input" class="block text-gray-300 text-sm font-bold mb-2">
+                Your Message:
+            </label>
+            <textarea
+                id="text-input"
+                class="w-full p-4 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+                rows="6"
+                placeholder="Type your text here..."
+            ></textarea>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-300 text-sm font-bold mb-2">
+                Playing:
+            </label>
+            <div
+                id="playback-text-display"
+                class="w-full p-4 rounded-lg bg-gray-700 border border-gray-600 text-white min-h-[4rem] flex flex-wrap items-center justify-center text-xl overflow-hidden"
+            >
+                </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div>
+                <label for="pitch-input" class="block text-gray-300 text-sm font-bold mb-2">
+                    Pitch (Hz):
+                </label>
+                <input
+                    id="pitch-input"
+                    type="number"
+                    class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value="600"
+                    min="100"
+                    max="2000"
+                />
+            </div>
+            <div>
+                <label for="wpm-input" class="block text-gray-300 text-sm font-bold mb-2">
+                    Speed (WPM):
+                </label>
+                <input
+                    id="wpm-input"
+                    type="number"
+                    class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value="20"
+                    min="5"
+                    max="50"
+                />
+            </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4">
+            <button
+                id="play-button"
+                class="flex-1 px-6 py-3 rounded-lg font-bold text-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 bg-blue-600 hover:bg-blue-700 text-white shadow-lg transform hover:scale-105"
+            >
+                Encode & Play
+            </button>
+            <button
+                id="stop-button"
+                class="flex-1 px-6 py-3 rounded-lg font-bold text-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-400 bg-gray-600 text-gray-400 cursor-not-allowed"
+                disabled
+            >
+                Stop Playback
+            </button>
+        </div>
+
+        <div id="message-display" class="mt-6 p-3 bg-gray-700 text-center text-gray-200 rounded-lg shadow-inner hidden">
+        </div>
+    </div>
+
+    <script>
+        // Configure Tailwind to use Inter font
+        tailwind.config = {
+          theme: {
+            extend: {
+              fontFamily: {
+                inter: ['Inter', 'sans-serif'],
+              },
+            },
+          },
+        };
+
+        // --- DOM Elements ---
+        const textInput = document.getElementById('text-input');
+        const pitchInput = document.getElementById('pitch-input');
+        const wpmInput = document.getElementById('wpm-input');
+        const playButton = document.getElementById('play-button');
+        const stopButton = document.getElementById('stop-button');
+        const messageDisplay = document.getElementById('message-display');
+        const playbackTextDisplay = document.getElementById('playback-text-display'); // New display area
+
+        // --- Global Web Audio API Variables ---
+        let audioContext;
+        let oscillator;
+        let gainNode;
+        let isPlaying = false;
+        let stopPlaybackFlag = false; // Flag to signal stopping playback mid-sequence
+        // currentHighlightedSpan is no longer needed for word display, but kept if you plan to highlight within a word later
+        let currentHighlightedSpan = null; 
+
+        // Morse code dictionary (case-insensitive for convenience)
+        const morseCodeMap = {
+            'a': '.-', 'b': '-...', 'c': '-.-.', 'd': '-..', 'e': '.', 'f': '..-.',
+            'g': '--.', 'h': '....', 'i': '..', 'j': '.---', 'k': '-.-', 'l': '.-..',
+            'm': '--', 'n': '-.', 'o': '---', 'p': '.--.', 'q': '--.-', 'r': '.-.',
+            's': '...', 't': '-', 'u': '..-', 'v': '...-', 'w': '.--', 'x': '-..-',
+            'y': '-.--', 'z': '--..',
+            '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+            '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
+            '.': '.-.-.-', ',': '--..--', '?': '..--..', '\'': '.----.', '!': '-.-.--',
+            '/': '-..-.', '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...',
+            ';': '-.-.-.', '=': '-...-', '+': '.-.-.', '-': '-....-', '_': '..--.-',
+            '"': '.-..-.', '$': '...-..-', '@': '.--.-.', ' ': ' ' // Space represents word break
+        };
+
+        // --- Helper Functions ---
+
+        // Function to display messages to the user
+        function showMessage(msg, isError = false) {
+            messageDisplay.textContent = msg;
+            messageDisplay.classList.remove('hidden');
+            if (isError) {
+                messageDisplay.classList.add('bg-red-700');
+                messageDisplay.classList.remove('bg-gray-700');
+            } else {
+                messageDisplay.classList.add('bg-gray-700');
+                messageDisplay.classList.remove('bg-red-700');
+            }
+        }
+
+        // Function to hide messages
+        function hideMessage() {
+            messageDisplay.classList.add('hidden');
+            messageDisplay.textContent = '';
+        }
+
+        // Function to update button states
+        function updateButtonStates(playing) {
+            isPlaying = playing;
+            if (playing) {
+                playButton.disabled = true;
+                playButton.classList.add('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+                playButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+
+                stopButton.disabled = false;
+                stopButton.classList.add('bg-red-600', 'hover:bg-red-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+                stopButton.classList.remove('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+
+                textInput.disabled = true;
+                pitchInput.disabled = true;
+                wpmInput.disabled = true;
+            } else {
+                playButton.disabled = false;
+                playButton.classList.remove('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+                playButton.classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+
+                stopButton.disabled = true;
+                stopButton.classList.remove('bg-red-600', 'hover:bg-red-700', 'text-white', 'shadow-lg', 'transform', 'hover:scale-105');
+                stopButton.classList.add('bg-gray-600', 'text-gray-400', 'cursor-not-allowed');
+
+                textInput.disabled = false;
+                pitchInput.disabled = false;
+                wpmInput.disabled = false;
+            }
+        }
+
+        // Function to calculate Morse code timings based on WPM
+        const getMorseTimings = (wpm) => {
+            const dotDuration = 1200 / wpm; // in milliseconds
+
+            return {
+                dot: dotDuration / 1000, // convert to seconds
+                dash: (dotDuration * 3) / 1000,
+                elementSpace: dotDuration / 1000, // Space between dot/dash within a character
+                charSpace: (dotDuration * 3) / 1000, // Space between characters
+                wordSpace: (dotDuration * 7) / 1000 // Space between words
+            };
+        };
+
+        // --- Web Audio API Setup ---
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                oscillator = audioContext.createOscillator();
+                gainNode = audioContext.createGain();
+
+                oscillator.type = 'sine'; // Use a sine wave for the tone
+                gainNode.gain.value = 0; // Start with 0 volume (silence)
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                oscillator.start(0); // Start the oscillator immediately, but at 0 volume
+            }
+            // Resume audio context if it's suspended (e.g., after user interaction)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        // --- Playback Helper for Web Audio API ---
+        async function playMorseElement(duration) {
+            if (stopPlaybackFlag) return;
+
+            const pitch = parseFloat(pitchInput.value);
+            const rampTime = 0.005; // Very short ramp time to prevent clicks
+
+            // Set frequency for the current element
+            oscillator.frequency.setValueAtTime(pitch, audioContext.currentTime);
+
+            // Ramp up gain to full volume
+            gainNode.gain.cancelScheduledValues(audioContext.currentTime); // Clear any pending ramps
+            gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime); // Ensure it's very low before ramp
+            gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + rampTime); // Ramp up quickly to audible level
+
+            // Wait for the duration of the dot/dash
+            await new Promise(resolve => setTimeout(resolve, duration * 1000));
+
+            if (stopPlaybackFlag) return;
+
+            // Ramp down gain to zero (silence)
+            gainNode.gain.linearRampToValueAtTime(0.0001, audioContext.currentTime + rampTime); // Ramp down quickly
+            gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime + rampTime + 0.01); // Ensure it's off
+        }
+
+        // --- Main Playback Logic ---
+        const encodeAndPlay = async () => {
+            const text = textInput.value.trim();
+            if (!text) {
+                showMessage('Please enter some text to encode.', true);
+                return;
+            }
+
+            if (isPlaying) {
+                showMessage('Playback in progress. Please wait or stop.');
+                return;
+            }
+
+            updateButtonStates(true);
+            stopPlaybackFlag = false; // Reset stop flag for new playback
+            showMessage('Encoding and playing...');
+
+            initAudioContext(); // Ensure audio context is initialized and started
+
+            const timings = getMorseTimings(parseFloat(wpmInput.value));
+            const extraCharacterPauseMs = 100; // 100ms extra pause between characters
+            
+            // Split the text into words (and include spaces as separate elements to handle word spacing)
+            // This regex splits by spaces but keeps the spaces in the array
+            const words = text.split(/(\s+)/).filter(s => s.length > 0); 
+            
+            for (let i = 0; i < words.length; i++) {
+                if (stopPlaybackFlag) {
+                    break;
+                }
+
+                const currentWord = words[i];
+
+                if (currentWord.trim() === '') { // If it's a space/whitespace segment
+                    playbackTextDisplay.textContent = ''; // Clear display for a moment or keep previous word shown
+                    await new Promise(resolve => setTimeout(resolve, timings.wordSpace * 1000));
+                    continue; // Skip to the next word/segment
+                }
+
+                // Display the current word
+                playbackTextDisplay.textContent = currentWord;
+
+                // Iterate over characters of the current word
+                for (let k = 0; k < currentWord.length; k++) {
+                    if (stopPlaybackFlag) break;
+
+                    const char = currentWord[k].toLowerCase();
+                    const morsePattern = morseCodeMap[char];
+
+                    if (morsePattern === undefined) {
+                        // Character not in map. Treat as a short pause.
+                        await new Promise(resolve => setTimeout(resolve, (timings.charSpace * 1000) + extraCharacterPauseMs));
+                        continue;
+                    }
+
+                    // Play the morse elements for the character
+                    for (let j = 0; j < morsePattern.length; j++) {
+                        if (stopPlaybackFlag) break;
+
+                        const element = morsePattern[j];
+                        const noteDuration = element === '.' ? timings.dot : timings.dash;
+
+                        await playMorseElement(noteDuration);
+
+                        if (j < morsePattern.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, timings.elementSpace * 1000));
+                        }
+                    }
+
+                    // Add inter-character space if it's not the last char of the word
+                    if (k < currentWord.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve,
