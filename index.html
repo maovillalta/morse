@@ -245,7 +245,7 @@
                 gainNode = audioContext.createGain();
 
                 oscillator.type = 'sine'; // Use a sine wave for the tone
-                gainNode.gain.value = 0.5; // Start with 0 volume (silence)
+                gainNode.gain.value = 0; // Start with 0 volume (silence)
 
                 oscillator.connect(gainNode);
                 gainNode.connect(audioContext.destination);
