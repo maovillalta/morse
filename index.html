@@ -264,7 +264,7 @@
 
             // const pitch = parseFloat(pitchInput.value); // Removed
             const pitch = DEFAULT_PITCH; // Using hardcoded pitch
-            const rampTime = 0.005; // Very short ramp time to prevent clicks
+            const rampTime = 0.05; // Very short ramp time to prevent clicks
 
             // Set frequency for the current element
             oscillator.frequency.setValueAtTime(pitch, audioContext.currentTime);
