@@ -249,7 +249,7 @@
 
                 oscillator.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-                oscillator.start(0.5); // Start the oscillator immediately, but at 0 volume
+                oscillator.start(0); // Start the oscillator immediately, but at 0 volume
             }
             // Resume audio context if it's suspended (e.g., after user interaction)
             if (audioContext.state === 'suspended') {
